@@ -1,0 +1,236 @@
+extract obj_props
+extract $
+
+// Renders 3D models from obj files into geometry dash.
+// It supports rotating models in compile time however it does not 
+// support rotating in runtime YET. 
+
+// The 'line' program may be useful in other cases although it could
+// be optimized as it is currently inefficient
+//      line(ax, ay, bx, by) - draws a line between two points
+
+// where the model should start
+originX = 600
+originY = 600
+
+//scale of the model
+size_multiplier = 100
+
+//different rotation axes of the model
+x_rotation = 60
+y_rotation = 60
+z_rotation = 60
+
+//file to read the model from (.obj)
+model = readfile("cube.obj")
+
+pi = 3.14159265359
+
+// nodes [x, y, z] of the 3D model
+let nodes = []
+let edited_nodes = []
+
+//faces which will be turned into edges later
+let faces = []
+
+// edge matching to connect the nodes
+let edges = []
+
+//atan2 funtion to help with angles
+atan2 = (y, x) {
+    if x > 0 {
+        return atan(y/x)
+    } 
+    else if x < 0 && y >= 0 {
+        return atan(y/x) + pi
+    }
+    else if x < 0 && y < 0 {
+        return atan(y/x) - pi;
+    }
+    else if x == 0 && y > 0 {
+        return pi / 2;
+    }
+    else if x == 0 && y < 0 {
+        return -(pi / 2);
+    }
+    else if x == 0 && y == 0 {
+        return 0;
+    }
+}
+
+//sqrt function for uses later
+sqrt = (n) {
+    return n ** 0.5
+}
+
+//loading bar function
+loadbar = (iter, tot, action){
+    percent = (iter/tot * 100)
+    print(percent as @string + '% Complete ' + action)
+}
+
+//function to read the obj file
+readobj = (file) {
+    let iterations = 0
+    let filelines = file.split('\n')
+    for i in 0..filelines.length { 
+        iterations += 1
+        loadbar(iterations, filelines.length, 'loading the file')
+        if filelines[i].length > 1 { 
+            if filelines[i].starts_with('v ') {
+                let xyz = []
+                vert = filelines[i].split(' ')
+                for j in 1..vert.length {
+                    if vert[j].length > 10 {
+                        xyz.push(substr(vert[j], 0, 10) as @number)
+                    }
+                    else {
+                        xyz.push(vert[j] as @number)
+                    }
+                }
+                nodes.push(xyz)
+            }
+            else if filelines[i].starts_with('f ') {
+                let face = []
+                vert = filelines[i].split(' ')
+                for j in 1..vert.length {
+                    face.push(((vert[j].split('/')[0]) as @number) - 1)
+                }
+                faces.push(face)
+            }
+        }
+    }
+    iterations = 0
+    for i in 0..faces.length {
+        face = faces[i]
+        iterations += 1
+        loadbar(iterations, faces.length, 'converting faces to edges')
+        for j in 0..face.length {
+            if j + 1 != face.length {
+                //uses less objects but is slower: if !edges.contains([face[j], face[j+1]]) && !edges.contains([face[j+1], face[j]]) {
+                    edges.push([face[j], face[j+1]])
+                //}
+            }
+            else {
+                //uses less objects but is slower: if !edges.contains([face[j], face[0]]) && !edges.contains([face[0], face[j]]) {
+                    edges.push([face[j], face[0]])              
+                //}
+            }
+        }
+    }
+    edited_nodes = nodes
+}
+
+//line function to draw lines between given points
+let line = (ax, ay, bx, by) {
+    let len = sqrt((ax - bx)^2 + (ay - by)^2)
+    
+    //angle between given points
+    ang = atan2(by - ay, ax - bx) * 180 / pi
+
+    // adds a line in the middle of the two points (half line if len is under 50)
+    if len > 30 {
+        add(obj {
+                OBJ_ID: 1753,
+                X: (ax + bx)/2,
+                Y: (ay + by)/2,
+                ROTATION: ang,
+        })
+    }
+    else if len > 15 {
+        add(obj {
+            OBJ_ID: 1757,
+            X: (ax + bx)/2,
+            Y: (ay + by)/2,
+            ROTATION: ang,
+        })
+    }
+    //determines length of current line
+    len = sqrt((ax - bx)^2 + (ay - by)^2)
+    
+    //checks if the line is under 30 units and stops the recursion if it is
+    if len > 30 {
+        //adds a line segment between the new middle line and original end
+        line(bx, by, (ax + bx)/2, (ay + by)/2)
+        line(ax, ay, (ax + bx)/2, (ay + by)/2)
+    } 
+}
+
+draw = (){
+    //loops through all edges
+    let iterations = 0
+    for i in 0..edges.length {
+        loadbar(iterations, edges.length, 'drawing edges')
+        iterations += 1
+        //finds the nodes that correlate to the pairs in the edge array
+        n0 = edited_nodes[edges[i][0]]
+        n1 = edited_nodes[edges[i][1]]
+
+        //calls the line function which draws a line between the given nodes
+        line(n0[0] * size_multiplier + originX, n0[1] * size_multiplier + originY, n1[0] * size_multiplier + originX, n1[1] * size_multiplier + originY)
+    } 
+
+    //loops through all the nodes
+    iterations = 0
+    for n in 0..nodes.length {
+        loadbar(iterations, nodes.length, 'drawing verticies')
+        iterations += 1
+        node = edited_nodes[n]
+        //adds a node at each of the [x, y, z] in the nodes array
+        add(obj {
+            OBJ_ID: 725,
+            X: node[0] * size_multiplier + originX,
+            Y: node[1] * size_multiplier + originY,
+        })
+    }
+}
+
+// The following three functions were my adaptation of the 3D shapes tutorial from khan academy
+rotateZ3D = (theta) {
+    sinTheta = sin(theta)
+    cosTheta = cos(theta)
+
+    for n in 0..nodes.length {
+        let node = edited_nodes[n]
+        x = node[0]
+        y = node[1]
+        edited_nodes[n][0] = x * cosTheta - y * sinTheta
+        edited_nodes[n][1] = y * cosTheta + x * sinTheta
+    }
+}
+
+rotateX3D = (theta) {
+    sinTheta = sin(theta)
+    cosTheta = cos(theta)
+
+    for n in 0..nodes.length {
+        let node = edited_nodes[n]
+        y = node[1]
+        z = node[2]
+        edited_nodes[n][1] = y * cosTheta - z * sinTheta
+        edited_nodes[n][2] = z * cosTheta + y * sinTheta
+    }
+}
+
+rotateY3D = (theta) {
+    sinTheta = sin(theta)
+    cosTheta = cos(theta)
+
+    for n in 0..nodes.length {
+        let node = edited_nodes[n]
+        x = node[0]
+        z = node[2]
+        edited_nodes[n][0] = x * cosTheta - z * sinTheta
+        edited_nodes[n][2] = z * cosTheta + x * sinTheta
+    }
+}
+
+//reads the obj file of the model
+readobj(model)
+
+//rotates the model object by the degrees given
+rotateZ3D(z_rotation)
+rotateY3D(y_rotation)
+rotateX3D(x_rotation)
+
+draw()
